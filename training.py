@@ -22,7 +22,7 @@ batch_size = 128
 hidden_size = 100
 
 device = torch.device('mps') if torch.backends.mps.is_available() else (torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu'))
-device = torch.device('cpu')
+device = torch.device('cpu') # REMOVE: debugging only
 ##############
 ## TRAINING ##
 ##############

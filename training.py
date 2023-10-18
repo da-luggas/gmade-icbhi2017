@@ -3,20 +3,32 @@ import torch.nn as nn
 import torch.optim as optim
 from torch.utils.data import DataLoader, random_split, Subset
 
+import random
 from tqdm import tqdm
 
 from model import GMADE
 from dataset import RespiratorySoundDataset
 
+# Set seeds for reproducibility
+seed = 42
+random.seed(seed)
+torch.manual_seed(seed)
+
 # Negative Log Likelihood (NLL) loss for the Gaussian distribution:
-def nll_gaussian(y, mu, sigma):
-    return (torch.log(sigma) + (y - mu)**2 / (2 * sigma**2)).sum()
+def nll_gaussian(y, mu, logvar):
+    # Calculate the variance from logvar
+    var = torch.exp(logvar)
+
+    # Calculate the Gaussian NLL
+    nll = (0.5 * (logvar + ((y - mu) ** 2) / var + torch.log(torch.tensor(2.0 * 3.141592653589793)))).sum()
+
+    return nll
 
 ###################
 ## CONFIGURATION ##
 ###################
 
-epochs = 10
+epochs = 100
 lr = 3e-4
 batch_size = 128
 hidden_size = 100
@@ -72,8 +84,8 @@ for epoch in tqdm(range(epochs)):
         for snippet in snippets:
             # Flatten snippet
             snippet = snippet.view(snippet.shape[0], 128 * 5)
-            mu, sigma = model(snippet)
-            loss = nll_gaussian(snippet, mu, sigma)
+            mu, logvar = model(snippet)
+            loss = nll_gaussian(snippet, mu, logvar)
             batch_loss += loss
         
         batch_loss.backward()

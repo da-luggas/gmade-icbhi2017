@@ -31,9 +31,9 @@ class GMADE(nn.Module):
         # Input to hidden layer using MaskedLinear
         self.i2h = MaskedLinear(128 * 5, hidden_size).to(device)
         
-        # Hidden layer to mu and sigma
+        # Hidden layer to mu and logvar
         self.h2mu = nn.Linear(hidden_size, 1).to(device)
-        self.h2sigma = nn.Linear(hidden_size, 1).to(device)
+        self.h2logvar = nn.Linear(hidden_size, 1).to(device)
 
         # Create mask for i2h layer
         self.mask = torch.ones_like(self.i2h.weight).to(device)
@@ -51,6 +51,6 @@ class GMADE(nn.Module):
         x = F.relu(self.i2h(x))
         
         mu = self.h2mu(x)
-        sigma = self.h2sigma(x)
+        logvar = self.h2logvar(x)
         
-        return mu, sigma
+        return mu, logvar

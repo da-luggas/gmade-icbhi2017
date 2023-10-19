@@ -1,56 +1,95 @@
+import numpy as np
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-# Taken from https://github.com/e-hulten/made/blob/master/models/made.py
 class MaskedLinear(nn.Linear):
-    """Linear transformation with masked out elements. y = x.dot(mask*W.T) + b"""
-
-    def __init__(self, n_in: int, n_out: int, bias: bool = True) -> None:
-        """
-        Args:
-            n_in: Size of each input sample.
-            n_out:Size of each output sample.
-            bias: Whether to include additive bias. Default: True.
-        """
-        super().__init__(n_in, n_out, bias)
-        self.mask = None
-
-    def _initialise_mask(self, mask: torch.Tensor):
-        """Internal method to initialise mask."""
-        self.mask = mask.to()
-
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        """Apply masked linear transformation."""
-        return F.linear(x, self.mask * self.weight, self.bias)
-
+    """
+    Linear layer that allows for a configurable mask on the weights
+    """
+    
+    def __init__(self, in_features, out_features, bias=True):
+        super().__init__(in_features, out_features, bias)        
+        self.register_buffer('mask', torch.ones(out_features, in_features))
+        
+    def set_mask(self, mask):
+        self.mask.data.copy_(torch.from_numpy(mask.astype(np.uint8).T))
+        
+    def forward(self, input):
+        return F.linear(input, self.mask * self.weight, self.bias)
+    
 class GMADE(nn.Module):
-    def __init__(self, hidden_size, device=torch.device("cpu")):
-        super(GMADE, self).__init__()
-        
-        # Input to hidden layer using MaskedLinear
-        self.i2h = MaskedLinear(128 * 5, hidden_size).to(device)
-        
-        # Hidden layer to mu and logvar
-        self.h2mu = nn.Linear(hidden_size, 1).to(device)
-        self.h2logvar = nn.Linear(hidden_size, 1).to(device)
+    def __init__(self, input_size, hidden_sizes, output_size, num_frames=5, num_masks=1):
+        """
+        input_size: integer; number of inputs
+        hidden_sizes: list of integers; number of units in hidden layers
+        output_size: integer; number of outputs
+        num_frames: integer; number of mel spectrogram frames
+        num_masks: integer; number of masks to cycle through
+        """
 
-        # Create mask for i2h layer
-        self.mask = torch.ones_like(self.i2h.weight).to(device)
-        
-        # Get indices for middle frame 
-        middle_frame_indices = list(range(2 * 128, 3 * 128))
-        
-        # Mask out middle frame weights
-        self.mask[:, middle_frame_indices] = 0
+        super().__init__()
+        self.input_size = input_size
+        self.output_size = output_size
+        self.hidden_sizes = hidden_sizes
+        assert self.output_size % self.input_size == 0, "output_size must be integer multiple of output_size"
 
-        # Initialize mask in MaskedLinear layer
-        self.i2h._initialise_mask(self.mask)
+        # Define simple MaskedLinear neural net
+        self.net = []
+        sizes = [input_size] + hidden_sizes + [output_size]
+        for h0, h1 in zip(sizes, sizes[1:]):
+            self.net.extend([
+                MaskedLinear(h0, h1),
+                nn.ReLU(),
+            ])
+        # Pop last ReLU from the output layer
+        self.net.pop()
+        self.net = nn.Sequential(*self.net)
+
+        # Number of Mel coefficients
+        self.num_frames = num_frames
+        self.num_mels = self.input_size // num_frames
+
+        # Seed for cycling through num_masks orderings
+        self.num_masks = num_masks
+        self.seed = 0
+        # Dictionary for mask ordering
+        self.m = {}
+        # Build the initial self.m connectivity
+        self.update_masks()
+
+    def update_masks(self):
+        if self.m and self.num_masks == 1: return
+        L = len(self.hidden_sizes)
+
+        # Fetch the next seed and construct a random stream
+        rng = np.random.RandomState(self.seed)
+        self.seed = (self.seed + 1) % self.num_masks
+
+        # Replicate frame orders for all mels in the frame
+        expanded_order = np.repeat(np.arange(self.num_frames), self.num_mels)
+
+        # Sample the order of the inputs and the connectivity of all neurons
+        # for causal frame ordering
+        self.m[-1] = expanded_order
+        for l in range(L):
+            self.m[l] = rng.randint(self.m[l-1].min(), self.num_frames - 1, size=self.hidden_sizes[l])
+        
+        # Construct the mask matrices
+        masks = [self.m[l-1][:,None] <= self.m[l][None,:] for l in range(L)]
+        masks.append(self.m[L-1][:,None] < expanded_order[None,:])
+
+        # Handle the case where output_size = k * input_size (e.g. mu, logvar as output)
+        if self.output_size > self.input_size:
+            k = int(self.output_size / self.input_size)
+            # Replicate mask across the other outputs
+            masks[-1] = np.concatenate([masks[-1]] * k, axis=1)
+
+        # Set the masks in all MaskedLinear layers
+        layers = [l for l in self.net.modules() if isinstance(l, MaskedLinear)]
+        for l, m in zip(layers, masks):
+            l.set_mask(m)
 
     def forward(self, x):
-        x = F.relu(self.i2h(x))
-        
-        mu = self.h2mu(x)
-        logvar = self.h2logvar(x)
-        
-        return mu, logvar
+        return self.net(x)

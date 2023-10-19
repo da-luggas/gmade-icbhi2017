@@ -1,3 +1,8 @@
+"""
+The vast majority of this architecture originates from Andrej Karpathy
+https://github.com/karpathy/pytorch-made/blob/master/made.py
+"""
+
 import numpy as np
 
 import torch

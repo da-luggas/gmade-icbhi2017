@@ -148,3 +148,56 @@ for epoch in tqdm(range(epochs)):
         break
 
     print(f"Epoch {epoch + 1}/{epochs}, Loss: {total_loss / len(train_loader)}, Val Loss: {val_loss}")
+
+################
+## EVALUATION ##
+################
+
+model.load_state_dict(torch.load('best_model.pt'))
+model.eval()
+
+# Define loss for evaluation (no reduction)
+nll_loss = nn.GaussianNLLLoss(reduction='none')
+
+test_scores = []
+test_labels = []
+
+with torch.no_grad():
+    for batch_data in test_loader:
+        mel_spectrogram, labels = batch_data
+        mel_spectrogram = mel_spectrogram.to(device)
+        # Remove channel dimension
+        mel_spectrogram = mel_spectrogram.squeeze(1)
+
+        # Split the mel spectrogram into 5-frame snippets
+        snippets = [mel_spectrogram[:, :, i:i+5] for i in range(mel_spectrogram.size(2) - 5 + 1)]
+        
+        batch_test_loss = torch.zeros([mel_spectrogram.shape[0]])
+        for snippet in snippets:
+            # Flatten snippet
+            snippet = snippet.reshape(snippet.shape[0], -1)
+            output = model(snippet)
+            # Reshape outputs to mu and logvar
+            output = output.view(snippet.shape[0], 5, 128, 2)
+            mu, logvar = output[..., 0], output[..., 1]
+            # Reshape snippet back to original shape
+            snippet = snippet.view(snippet.shape[0], 5, 128)
+            loss = nll_loss(snippet, mu, torch.exp(logvar)).sum((1, 2))
+            batch_test_loss += loss
+
+        test_scores.extend(batch_test_loss)
+        test_labels.extend(labels)
+
+# Compute AUC score
+auc_score = roc_auc_score(test_labels, test_scores)
+print(f"AUC Score: {auc_score:.4f}")
+
+# Plot ROC curve
+fpr, tpr, _ = roc_curve(test_labels, test_scores)
+plt.figure(figsize=(8, 6))
+plt.plot(fpr, tpr, label=f"AUC = {auc_score:.4f}")
+plt.xlabel('False Positive Rate')
+plt.ylabel('True Positive Rate')
+plt.title('Receiver Operating Characteristic Curve')
+plt.legend(loc='lower right')
+plt.show()

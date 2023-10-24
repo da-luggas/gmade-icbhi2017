@@ -1,5 +1,8 @@
-# Best model
-*.pt
+# tensorboard
+runs/
+
+# shell scripts
+grid_search.sh
 
 # Created by https://www.toptal.com/developers/gitignore/api/macos,visualstudiocode,python
 # Edit at https://www.toptal.com/developers/gitignore?templates=macos,visualstudiocode,python

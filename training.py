@@ -26,7 +26,7 @@ torch.manual_seed(seed)
 ###################
 
 parser = argparse.ArgumentParser()
-parser.add_argument('--epochs', type=int, default=1)
+parser.add_argument('--epochs', type=int, default=1000)
 parser.add_argument('--lr', type=float, default=1e-3)
 parser.add_argument('--batch_size', type=int, default=32)
 parser.add_argument('--hidden_sizes', type=str, default="100")
@@ -73,10 +73,10 @@ test_loader = DataLoader(test_dataset, batch_size=args.batch_size, shuffle=False
 # Initialize the model, optimizer and scheduler
 model = GMADE(input_size=128 * 5, hidden_sizes=hidden_sizes, output_size=128 * 5 * 2, ordering=args.ordering).to(device)
 optimizer = optim.Adam(model.parameters(), lr=args.lr)
-scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, factor=0.1, patience=3, threshold=0.01, threshold_mode="abs", verbose=True)
+scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, factor=0.1, patience=args.patience // 2, threshold=0.01, threshold_mode="abs", verbose=True)
 
 # Initialize our loss function
-nll_loss = nn.GaussianNLLLoss()
+nll_loss = nn.GaussianNLLLoss(full=True)
 
 # Initialize best validation loss and patience counter for early stopping
 best_val_loss = float('inf')
@@ -113,7 +113,7 @@ for epoch in tqdm(range(args.epochs)):
         # Reshape snippets back to original shape
         snippets = snippets.view(-1, 5, 128)
         
-        loss = nll_loss(snippets, mu, logvar.exp())
+        loss = nll_loss(mu, snippets, logvar.exp())
                 
         loss.backward()
         optimizer.step()
@@ -148,7 +148,7 @@ for epoch in tqdm(range(args.epochs)):
             # Reshape snippets back to original shape
             snippets = snippets.view(-1, 5, 128)
             
-            loss = nll_loss(snippets, mu, logvar.exp())
+            loss = nll_loss(mu, snippets, logvar.exp())
             
             val_loss += loss.item()
             
@@ -179,7 +179,7 @@ model.load_state_dict(torch.load(os.path.join(writer.log_dir, 'best_model.pt')))
 model.eval()
 
 # Define loss for evaluation (no reduction)
-nll_loss = nn.GaussianNLLLoss(reduction="none")
+nll_loss = nn.GaussianNLLLoss(reduction="none", full=True)
 test_scores = []
 test_labels = []
 
@@ -203,7 +203,7 @@ with torch.no_grad():
             mu, logvar = output[..., 0], output[..., 1]
             # Reshape snippet back to original shape
             snippet = snippet.view(snippet.shape[0], 5, 128)
-            loss = nll_loss(snippet, mu, logvar.exp()).mean((1, 2))
+            loss = nll_loss(mu, snippet, logvar.exp()).mean((1, 2))
             batch_test_loss += loss.cpu()
 
         test_scores.extend(batch_test_loss)

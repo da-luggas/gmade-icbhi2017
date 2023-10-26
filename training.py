@@ -6,8 +6,7 @@ from torch.utils.tensorboard import SummaryWriter
 
 import random
 from tqdm import tqdm
-from sklearn.metrics import roc_auc_score, roc_curve
-import matplotlib.pyplot as plt
+from sklearn.metrics import roc_auc_score
 import numpy as np
 import argparse
 import os
@@ -28,11 +27,11 @@ torch.manual_seed(seed)
 parser = argparse.ArgumentParser()
 parser.add_argument('--epochs', type=int, default=1000)
 parser.add_argument('--lr', type=float, default=1e-3)
-parser.add_argument('--batch_size', type=int, default=32)
+parser.add_argument('--batch_size', type=int, default=64)
 parser.add_argument('--hidden_sizes', type=str, default="100")
-parser.add_argument('--patience', type=int, default=5)
+parser.add_argument('--patience', type=int, default=10)
 parser.add_argument('--data_path', type=str, default="/home/lukas/thesis/anogan2d/dataset")
-parser.add_argument('--ordering', type=str, default="middle")
+parser.add_argument('--resample_every', type=int, default=20)
 args = parser.parse_args()
 
 device = torch.device('mps') if torch.backends.mps.is_available() else (torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu'))
@@ -71,9 +70,9 @@ validation_loader = DataLoader(validation_dataset, batch_size=args.batch_size, s
 test_loader = DataLoader(test_dataset, batch_size=args.batch_size, shuffle=False)
 
 # Initialize the model, optimizer and scheduler
-model = GMADE(input_size=128 * 5, hidden_sizes=hidden_sizes, output_size=128 * 5 * 2, ordering=args.ordering).to(device)
+model = GMADE(input_size=128 * 5, hidden_sizes=hidden_sizes, output_size=128 * 5 * 2).to(device)
 optimizer = optim.Adam(model.parameters(), lr=args.lr)
-scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, factor=0.1, patience=args.patience // 2, threshold=0.01, threshold_mode="abs", verbose=True)
+scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, factor=0.1, patience=args.patience // 2, threshold=0.01, verbose=True)
 
 # Initialize our loss function
 nll_loss = nn.GaussianNLLLoss(full=True)
@@ -87,7 +86,12 @@ for epoch in tqdm(range(args.epochs)):
     train_loss = 0
     model.train()
 
-    for batch_data in train_loader:
+    for batch_idx, batch_data in enumerate(train_loader):
+        # Handle model mask update every args.resample_every steps
+        step = epoch * len(train_loader) + batch_idx + 1
+        if step % args.resample_every == 0:
+            model.update_masks()
+
         mel_spectrogram, _ = batch_data
         mel_spectrogram = mel_spectrogram.to(device)
         mel_spectrogram = mel_spectrogram.squeeze(1)
@@ -99,7 +103,7 @@ for epoch in tqdm(range(args.epochs)):
         snippets = torch.cat(snippets, 0)
         
         # Flatten snippets
-        snippets = snippets.reshape(-1, 5*128)
+        snippets = snippets.reshape(-1, 128*5)
         
         optimizer.zero_grad()
         
@@ -107,11 +111,11 @@ for epoch in tqdm(range(args.epochs)):
         outputs = model(snippets)
         
         # Reshape outputs to mu and logvar
-        outputs = outputs.view(-1, 5, 128, 2)
+        outputs = outputs.view(-1, 128, 5, 2)
         mu, logvar = outputs[..., 0], outputs[..., 1]
         
         # Reshape snippets back to original shape
-        snippets = snippets.view(-1, 5, 128)
+        snippets = snippets.view(-1, 128, 5)
         
         loss = nll_loss(mu, snippets, logvar.exp())
                 
@@ -119,12 +123,17 @@ for epoch in tqdm(range(args.epochs)):
         optimizer.step()
         train_loss += loss.item()
 
+    train_loss = train_loss / len(train_loader)
+
     # Validate current model
     val_loss = 0
     model.eval()
 
     with torch.no_grad():
         for batch_data in validation_loader:
+            # Update model mask at every step
+            model.update_masks()
+
             mel_spectrogram, _ = batch_data
             mel_spectrogram = mel_spectrogram.to(device)
             mel_spectrogram = mel_spectrogram.squeeze(1)
@@ -136,17 +145,17 @@ for epoch in tqdm(range(args.epochs)):
             snippets = torch.cat(snippets, 0)
             
             # Flatten snippets
-            snippets = snippets.reshape(-1, 5*128)
+            snippets = snippets.reshape(-1, 128*5)
             
             # Forward pass for all snippets
             outputs = model(snippets)
             
             # Reshape outputs to mu and logvar
-            outputs = outputs.view(-1, 5, 128, 2)
+            outputs = outputs.view(-1, 128, 5, 2)
             mu, logvar = outputs[..., 0], outputs[..., 1]
             
             # Reshape snippets back to original shape
-            snippets = snippets.view(-1, 5, 128)
+            snippets = snippets.view(-1, 128, 5)
             
             loss = nll_loss(mu, snippets, logvar.exp())
             
@@ -166,7 +175,7 @@ for epoch in tqdm(range(args.epochs)):
         print("Early stopping.")
         break
 
-    writer.add_scalar("Loss/Train", train_loss / len(train_loader), epoch)
+    writer.add_scalar("Loss/Train", train_loss, epoch)
     writer.add_scalar("Loss/Val", val_loss, epoch)
 
     scheduler.step(val_loss)
@@ -185,6 +194,9 @@ test_labels = []
 
 with torch.no_grad():
     for batch_data in test_loader:
+        # Update model mask at every step
+        model.update_masks()
+
         mel_spectrogram, labels = batch_data
         mel_spectrogram = mel_spectrogram.to(device)
         # Remove channel dimension
@@ -199,10 +211,10 @@ with torch.no_grad():
             snippet = snippet.reshape(snippet.shape[0], -1)
             output = model(snippet)
             # Reshape outputs to mu and logvar
-            output = output.view(snippet.shape[0], 5, 128, 2)
+            output = output.view(snippet.shape[0], 128, 5, 2)
             mu, logvar = output[..., 0], output[..., 1]
             # Reshape snippet back to original shape
-            snippet = snippet.view(snippet.shape[0], 5, 128)
+            snippet = snippet.view(snippet.shape[0], 128, 5)
             loss = nll_loss(mu, snippet, logvar.exp()).mean((1, 2))
             batch_test_loss += loss.cpu()
 

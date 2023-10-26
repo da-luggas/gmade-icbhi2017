@@ -25,14 +25,13 @@ class MaskedLinear(nn.Linear):
         return F.linear(input, self.mask * self.weight, self.bias)
     
 class GMADE(nn.Module):
-    def __init__(self, input_size, hidden_sizes, output_size, num_frames=5, num_masks=1, ordering="forward"):
+    def __init__(self, input_size, hidden_sizes, output_size, num_frames=5, num_masks=1):
         """
         input_size: integer; number of inputs
         hidden_sizes: list of integers; number of units in hidden layers
         output_size: integer; number of outputs
         num_frames: integer; number of mel spectrogram frames
         num_masks: integer; number of masks to cycle through
-        ordering: str; ordering of the frames (forward, backward, middle)
         """
 
         super().__init__()
@@ -63,9 +62,9 @@ class GMADE(nn.Module):
         # Dictionary for mask ordering
         self.m = {}
         # Build the initial self.m connectivity
-        self.update_masks(ordering=ordering)
+        self.update_masks()
 
-    def update_masks(self, ordering):
+    def update_masks(self):
         if self.m and self.num_masks == 1: return
         L = len(self.hidden_sizes)
 
@@ -74,14 +73,7 @@ class GMADE(nn.Module):
         self.seed = (self.seed + 1) % self.num_masks
 
         # Replicate frame orders for all mels in the frame
-        if ordering == "forward":
-            expanded_order = np.repeat([0, 1, 2, 3, 4], self.num_mels)
-        elif ordering == "backward":
-            expanded_order = np.repeat([4, 3, 2, 1, 0], self.num_mels)
-        elif ordering == "middle":
-            expanded_order = np.repeat([0, 1, 3, 4, 2], self.num_mels)
-        else:
-            raise ValueError("ordering must be forward, backward or middle")
+        expanded_order = np.repeat(rng.permutation(self.num_frames), self.num_mels)
 
         # Sample the order of the inputs and the connectivity of all neurons
         # for middle frame ordering

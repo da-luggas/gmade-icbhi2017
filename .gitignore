@@ -1,11 +1,5 @@
-# tensorboard
-runs/
-
-# shell scripts
-grid_search.sh
-
-# Created by https://www.toptal.com/developers/gitignore/api/macos,visualstudiocode,python
-# Edit at https://www.toptal.com/developers/gitignore?templates=macos,visualstudiocode,python
+# Created by https://www.toptal.com/developers/gitignore/api/python,visualstudiocode,macos
+# Edit at https://www.toptal.com/developers/gitignore?templates=python,visualstudiocode,macos
 
 ### macOS ###
 # General
@@ -231,4 +225,7 @@ pyrightconfig.json
 .history
 .ionide
 
-# End of https://www.toptal.com/developers/gitignore/api/macos,visualstudiocode,python
+# End of https://www.toptal.com/developers/gitignore/api/python,visualstudiocode,macos
+
+runs/
+dataset.pt

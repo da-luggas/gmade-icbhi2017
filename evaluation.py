@@ -96,7 +96,7 @@ def test_model(model, dataloader, state_dict, args):
             mels = mels.to(args.device)
 
             # Split the mels into 5-frame snippets
-            snippets = [mels[:, :, i:i+5] for i in range(mels.size(2) - 5 + 1)]
+            snippets = [mels[:, :, i:i+5] for i in range(0, mels.size(2) - 5 + 1, 5)]
 
             batch_loss = torch.zeros([mels.shape[0]])
             for snippet in snippets:
@@ -114,11 +114,10 @@ def test_model(model, dataloader, state_dict, args):
                 # Reshape outputs to mu and logvar
                 outputs = outputs.view(-1, 128, 5, 2)
                 mu, logvar = outputs[..., 0], outputs[..., 1]
-                print(mu)
                 # Reshape snippets back to original shape
                 snippet = snippet.view(-1, 128, 5)
 
-                loss = criterion(mu, snippet, logvar.exp()).mean((1, 2))
+                loss = criterion(mu, snippet, logvar.exp()).sum((1, 2))
                 batch_loss += loss.cpu()
 
             batch_loss /= len(snippets)
@@ -147,18 +146,15 @@ if __name__ == "__main__":
     set_seeds()
 
     parser = argparse.ArgumentParser()
-    parser.add_argument("--lr", type=float, default=3e-4, help="Learning rate")
-    parser.add_argument("--bs", type=int, default=64, help="Batch size for dataloaders")
-    parser.add_argument("--hs", type=list, default=[128, 32, 128], help="Architecture of hidden layers")
-    parser.add_argument("--device", default=torch.device('mps') if torch.backends.mps.is_available() else (torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu')), help="Device to run training on")
-    parser.add_argument("--samples", type=int, default=5, help="Number of hidden layer resamples")
-    parser.add_argument("--resample_every", type=int, default=20, help="How often to resample during training")
-    parser.add_argument("--dataset", type=str, default="dataset.pt", help="Path to preprocessed dataset")
-    parser.add_argument("--model", type=str, default="runs/Nov10_17-51-48_Lukass-Air.lan/model.pt", help="Path to saved model from training")
-    args = parser.parse_args()
+    parser.add_argument("--model", type=str, default="runs/Nov11_13-29-35_Lukass-Air.lan/model.pt", help="Path to saved model from training")
+    model_dir = parser.parse_args().model
+
+    # Load model state dict and args
+    saved_model = torch.load(model_dir)
+    state_dict, args = saved_model['state_dict'], saved_model['args']
 
     # Split and load data
-    _, _, test_set = split_data(args.dataset)
+    _, val_set, test_set = split_data(args.dataset)
 
     test_loader = DataLoader(test_set, batch_size=args.bs)
 
@@ -166,5 +162,5 @@ if __name__ == "__main__":
     model = GMADE(128 * 5, args.hs, 128 * 5 * 2).to(args.device)
 
     # Evaluation model generalization using test set
-    state_dict = torch.load(args.model)
+
     test_model(model, test_loader, state_dict, args)

@@ -80,7 +80,8 @@ def train_epoch(model, optimizer, criterion, dataloader, args):
         mels = mels.to(args.device)
 
         # Split the mels into 5-frame snippets
-        snippets = [mels[:, :, i:i+5] for i in range(mels.size(2) - 5 + 1)]
+        snippets = [mels[:, :, i:i+5] for i in range(0, mels.size(2) - 5 + 1, 5)]
+        # snippets = [mels[:, :, i:i+5] for i in range(mels.size(2) - 5 + 1)]
         # Concatenate snippets along batch dimension
         snippets = torch.cat(snippets, 0)
         # Flatten snippets for input in linear nn
@@ -108,7 +109,7 @@ def train_epoch(model, optimizer, criterion, dataloader, args):
         train_loss += loss.item()
 
     train_loss = train_loss / len(dataloader)
-    return train_loss, mu
+    return train_loss
 
 def eval_epoch(model, optimizer, criterion, dataloader, args):
     val_loss = 0
@@ -119,7 +120,8 @@ def eval_epoch(model, optimizer, criterion, dataloader, args):
         mels = mels.to(args.device)
 
         # Split the mels into 5-frame snippets
-        snippets = [mels[:, :, i:i+5] for i in range(mels.size(2) - 5 + 1)]
+        snippets = [mels[:, :, i:i+5] for i in range(0, mels.size(2) - 5 + 1, 5)]
+        # snippets = [mels[:, :, i:i+5] for i in range(mels.size(2) - 5 + 1)]
         # Concatenate snippets along batch dimension
         snippets = torch.cat(snippets, 0)
         # Flatten snippets for input in linear nn
@@ -163,7 +165,8 @@ def test_model(model, dataloader, state_dict, args):
             mels = mels.to(args.device)
 
             # Split the mels into 5-frame snippets
-            snippets = [mels[:, :, i:i+5] for i in range(mels.size(2) - 5 + 1)]
+            snippets = [mels[:, :, i:i+5] for i in range(0, mels.size(2) - 5 + 1, 5)]
+            # snippets = [mels[:, :, i:i+5] for i in range(mels.size(2) - 5 + 1)]
 
             batch_loss = torch.zeros([mels.shape[0]])
             for snippet in snippets:
@@ -216,7 +219,7 @@ if __name__ == "__main__":
 
     args.hs = [int(i) for i in args.hs.replace(" ", "").split(",")]
     # Split and load data
-    train_set, val_set, test_set = split_data(args.dataset)
+    train_set, val_set, test_set = split_data(args.dataset, 999)
 
     train_loader = DataLoader(train_set, batch_size=args.bs)
     val_loader = DataLoader(val_set, batch_size=args.bs)
@@ -224,7 +227,7 @@ if __name__ == "__main__":
 
     # Initialize the model and optimizer
     model = GMADE(128 * 5, args.hs, 128 * 5 * 2, num_masks=args.masks).to(args.device)
-    initialize_weights(model)
+    # initialize_weights(model)
     optimizer = optim.Adam(model.parameters(), lr=args.lr)
 
     # Initialize loss
@@ -239,7 +242,7 @@ if __name__ == "__main__":
 
     # Train the model
     for epoch in tqdm(range(args.epochs)):
-        train_loss, mu = train_epoch(model, optimizer, criterion, train_loader, args)
+        train_loss = train_epoch(model, optimizer, criterion, train_loader, args)
         val_loss = eval_epoch(model, optimizer, criterion, val_loader, args)
 
         if val_loss < best_val_loss:
@@ -257,10 +260,9 @@ if __name__ == "__main__":
 
         writer.add_scalar("Loss/Train", train_loss, global_step=epoch)
         writer.add_scalar("Loss/Val", val_loss, global_step=epoch)
-        print(mu)
 
     # Evaluation model generalization using test set
-    state_dict = torch.load(os.path.join(writer.log_dir, "model.pt"))
+    state_dict = torch.load(os.path.join(writer.log_dir, "model.pt"))['state_dict']
     roc_auc_score = test_model(model, test_loader, state_dict, args)
     print("ROC-AUC Score: ", roc_auc_score)
     writer.add_scalar("Metrics/ROCAUC", roc_auc_score)

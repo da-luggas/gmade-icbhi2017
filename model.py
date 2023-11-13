@@ -78,12 +78,12 @@ class GMADE(nn.Module):
         self.seed = (self.seed + 1) % self.num_masks
 
         # replicate frame orders for all mels in the frame
-        expanded_order = np.repeat([0, 1, 2, 3, 4], self.num_mfccs)
+        expanded_order = np.tile([0, 1, 2, 3, 4], self.num_mfccs)
         
         # sample the order of the inputs and the connectivity of all neurons
         self.m[-1] = expanded_order
         for l in range(L):
-            self.m[l] = rng.randint(self.m[l-1].min(), self.nin-1, size=self.hidden_sizes[l])
+            self.m[l] = rng.randint(self.m[l-1].min(), self.num_frames-1, size=self.hidden_sizes[l])
         
         # construct the mask matrices
         masks = [self.m[l-1][:,None] <= self.m[l][None,:] for l in range(L)]

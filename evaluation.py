@@ -96,7 +96,8 @@ def test_model(model, dataloader, state_dict, args):
             mels = mels.to(args.device)
 
             # Split the mels into 5-frame snippets
-            snippets = [mels[:, :, i:i+5] for i in range(0, mels.size(2) - 5 + 1, 5)]
+            # snippets = [mels[:, :, i:i+5] for i in range(0, mels.size(2) - 5 + 1, 5)]
+            snippets = [mels[:, :, i:i+5] for i in range(mels.size(2) - 5 + 1)]
 
             batch_loss = torch.zeros([mels.shape[0]])
             for snippet in snippets:

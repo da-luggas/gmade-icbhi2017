@@ -229,3 +229,7 @@ pyrightconfig.json
 
 runs/
 dataset.pt
+
+# Optuna hyperparameter search
+*.db
+optimization.py

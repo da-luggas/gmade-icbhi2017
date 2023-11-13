@@ -88,7 +88,7 @@ def extract_cycles(dataset):
             # Padding or truncating to 3 seconds
             excerpt_length = int(3 * 4000)
 
-            cycle = wrap_padding(cycle, excerpt_length)
+            cycle = zero_padding(cycle, excerpt_length)
             cycle = process_cycle(cycle, 4000)
 
             recording_ids.append(idx)

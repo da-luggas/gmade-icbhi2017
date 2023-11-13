@@ -142,10 +142,6 @@ def eval_epoch(model, optimizer, criterion, dataloader, args):
         snippets = snippets.view(-1, 128, 5)
 
         loss = criterion(mu, snippets, logvar.exp())
-
-        optimizer.zero_grad()
-        loss.backward()
-        optimizer.step()
         val_loss += loss.item()
 
     val_loss = val_loss / len(dataloader)

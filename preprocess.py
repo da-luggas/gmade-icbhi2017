@@ -11,7 +11,6 @@ def print_melspec(melspec):
     plt.imshow(melspec)
     plt.show()
 
-
 def wrap_padding(tensor, target_length):
     # Truncate if the tensor is longer than the target length
     if len(tensor) > target_length:
@@ -30,7 +29,6 @@ def wrap_padding(tensor, target_length):
 
     return tensor
 
-
 def zero_padding(tensor, target_length):
     tensor_length = len(tensor)
 
@@ -41,19 +39,14 @@ def zero_padding(tensor, target_length):
     # Zero padding if the tensor is shorter than the target length
     if tensor_length < target_length:
         padding_size = target_length - tensor_length
-        zero_padding = torch.zeros(
-            padding_size, dtype=tensor.dtype, device=tensor.device
-        )
+        zero_padding = torch.zeros(padding_size, dtype=tensor.dtype, device=tensor.device)
         return torch.cat([tensor, zero_padding])
 
     return tensor
 
-
 def process_cycle(waveform, sr):
     # Extract mel spectrogram
-    mel_spec = MelSpectrogram(
-        sample_rate=sr, hop_length=94, window_fn=torch.hamming_window
-    )(waveform)
+    mel_spec = MelSpectrogram(sample_rate=sr, hop_length=94, window_fn=torch.hamming_window)(waveform)
 
     # Convert to db scale
     mel_spec_db = torchaudio.transforms.AmplitudeToDB()(mel_spec)
@@ -62,37 +55,36 @@ def process_cycle(waveform, sr):
     normalized_mel = (mel_spec_db - torch.mean(mel_spec_db)) / torch.std(mel_spec_db)
 
     return normalized_mel
-
-
+    
 def extract_cycles(dataset):
-    wav_files = [f for f in os.listdir(dataset) if f.endswith(".wav")]
+    wav_files = [f for f in os.listdir(dataset) if f.endswith('.wav')]
     cycles = []
     labels = []
     recording_ids = []
 
     for idx, wav_file in enumerate(wav_files):
-        txt_file = wav_file.replace(".wav", ".txt")
-
+        txt_file = wav_file.replace('.wav', '.txt')
+        
         # Load audio file
         waveform, sr = torchaudio.load(os.path.join(dataset, wav_file))
         # Remove the channel dimension (mono sound)
         waveform = waveform.squeeze()
 
         # Read annotation
-        with open(os.path.join(dataset, txt_file), "r") as f:
+        with open(os.path.join(dataset, txt_file), 'r') as f:
             annotations = f.readlines()
 
         for line in annotations:
-            start, end, crackles, wheezes = line.strip().split("\t")
+            start, end, crackles, wheezes = line.strip().split('\t')
             # Convert time to sample number
             start, end = float(start) * sr, float(end) * sr
             label = 1 if int(crackles) or int(wheezes) else 0
-
+            
             # Extract and resample the cycle
-            cycle = waveform[int(start) : int(end)]
+            cycle = waveform[int(start):int(end)]
             resampler = Resample(orig_freq=sr, new_freq=4000)
             cycle = resampler(cycle)
-
+            
             # Padding or truncating to 3 seconds
             excerpt_length = int(3 * 4000)
 
@@ -105,27 +97,15 @@ def extract_cycles(dataset):
 
     return torch.tensor(recording_ids), torch.stack(cycles), torch.tensor(labels)
 
-
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(
-        description="Preprocessing of ICBHI 2017 dataset for anomaly detection"
-    )
-    parser.add_argument(
-        "--dataset",
-        default="/Users/lukas/Documents/PARA/1 🚀 Projects/Bachelor Thesis/ICBHI_final_database"
-       , type=str
-       , help="Directory where the original dataset is stored,
-    ")
-    parser.add_argument(
-        "--target",
-        default="dataset.pt",
-        type=str,
-        help="Output path to store processed data",
-    )
+    parser = argparse.ArgumentParser(description="Preprocessing of ICBHI 2017 dataset for anomaly detection")
+    parser.add_argument("--dataset", default="/Users/lukas/Documents/PARA/1 🚀 Projects/Bachelor Thesis/ICBHI_final_database", type=str, help="Directory where the original dataset is stored")
+    parser.add_argument("--target", default="dataset.pt", type=str, help="Output path to store processed data")
     args = parser.parse_args()
 
     recording_ids, cycles, labels = extract_cycles(args.dataset)
-    torch.save(
-        {"recording_ids": recording_ids, "cycles": cycles, "labels": labels},
-        args.target,
-    )
+    torch.save({
+        'recording_ids': recording_ids,
+        'cycles': cycles,
+        'labels': labels
+    }, args.target)

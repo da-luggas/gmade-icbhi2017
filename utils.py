@@ -1,13 +1,13 @@
 import random
+
+import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.parallel
+from sklearn.metrics import roc_auc_score
+from sklearn.model_selection import train_test_split
 from torch.utils.data import Dataset
 
-import numpy as np
-
-from sklearn.model_selection import train_test_split
-from sklearn.metrics import roc_auc_score
 
 class RespiratorySoundDataset(Dataset):
     def __init__(self, X, y):
@@ -17,7 +17,7 @@ class RespiratorySoundDataset(Dataset):
 
     def __len__(self):
         return len(self.X)
-    
+
     def __getitem__(self, idx):
         return self.X[idx], self.y[idx]
 
@@ -27,16 +27,19 @@ def set_seeds(seed=999):
     random.seed(seed)
     torch.manual_seed(seed)
 
+
 def split_data(dataset, prevent_leakage=False, seed=999):
     data = torch.load(dataset)
-    
-    recording_ids = data['recording_ids']
-    cycles = data['cycles']
-    labels = data['labels']
+
+    recording_ids = data["recording_ids"]
+    cycles = data["cycles"]
+    labels = data["labels"]
 
     if prevent_leakage:
         unique_recording_ids = torch.unique(recording_ids)
-        train_ids, test_ids = train_test_split(unique_recording_ids, test_size=0.2, random_state=seed, stratify=labels)
+        train_ids, test_ids = train_test_split(
+            unique_recording_ids, test_size=0.2, random_state=seed, stratify=labels
+        )
 
         # Create masks for selecting data
         train_mask = torch.isin(recording_ids, train_ids)
@@ -47,10 +50,14 @@ def split_data(dataset, prevent_leakage=False, seed=999):
         X_test, y_test = cycles[test_mask], labels[test_mask]
     else:
         # Random splitting 80/20
-        X_train, X_test, y_train, y_test = train_test_split(cycles, labels, test_size=0.2, random_state=seed, stratify=labels)
+        X_train, X_test, y_train, y_test = train_test_split(
+            cycles, labels, test_size=0.2, random_state=seed, stratify=labels
+        )
 
     # Further splitting of train set into validation
-    X_train, X_val, y_train, y_val = train_test_split(X_train, y_train, test_size=0.2, random_state=seed, stratify=y_train)
+    X_train, X_val, y_train, y_val = train_test_split(
+        X_train, y_train, test_size=0.2, random_state=seed, stratify=y_train
+    )
 
     X_train, y_train = X_train[y_train == 0], y_train[y_train == 0]
 
@@ -59,6 +66,7 @@ def split_data(dataset, prevent_leakage=False, seed=999):
     test_set = RespiratorySoundDataset(X_test, y_test)
 
     return train_set, val_set, test_set
+
 
 def get_optimal_threshold(losses, labels):
     accuracies = []
@@ -71,6 +79,7 @@ def get_optimal_threshold(losses, labels):
     optimal_threshold = losses[np.argmax(accuracies)]
     return optimal_threshold
 
+
 def train_epoch(model, optimizer, criterion, dataloader, args):
     train_loss = 0
     model.train()
@@ -80,14 +89,16 @@ def train_epoch(model, optimizer, criterion, dataloader, args):
         mels = mels.to(args.device)
 
         # Split the mels into 5-frame snippets
-        snippets = [mels[:, :, i:i+5] for i in range(0, mels.size(2) - 5 + 1, 5)]
+        snippets = [mels[:, :, i : i + 5] for i in range(0, mels.size(2) - 5 + 1, 5)]
         # snippets = [mels[:, :, i:i+5] for i in range(mels.size(2) - 5 + 1)]
         # Concatenate snippets along batch dimension
         snippets = torch.cat(snippets, 0)
         # Flatten snippets for input in linear nn
         snippets = snippets.reshape(-1, 128 * 5)
         # Perform order/connectivity agnostic training by resampling the masks
-        outputs = torch.zeros(snippets.shape[0], snippets.shape[1] * 2, device=args.device)
+        outputs = torch.zeros(
+            snippets.shape[0], snippets.shape[1] * 2, device=args.device
+        )
         for s in range(args.samples):
             if batch_idx % args.resample_every == 0:
                 model.update_masks()
@@ -111,8 +122,11 @@ def train_epoch(model, optimizer, criterion, dataloader, args):
     train_loss = train_loss / len(dataloader)
     return train_loss
 
+
 def eval_epoch(model, optimizer, criterion, dataloader, args):
-    scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, 'min', patience=args.patience // 2, min_lr=3e-5, factor=0.1)
+    scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
+        optimizer, "min", patience=args.patience // 2, min_lr=3e-5, factor=0.1
+    )
 
     val_loss = 0
     model.eval()
@@ -122,14 +136,16 @@ def eval_epoch(model, optimizer, criterion, dataloader, args):
         mels = mels.to(args.device)
 
         # Split the mels into 5-frame snippets
-        snippets = [mels[:, :, i:i+5] for i in range(0, mels.size(2) - 5 + 1, 5)]
+        snippets = [mels[:, :, i : i + 5] for i in range(0, mels.size(2) - 5 + 1, 5)]
         # snippets = [mels[:, :, i:i+5] for i in range(mels.size(2) - 5 + 1)]
         # Concatenate snippets along batch dimension
         snippets = torch.cat(snippets, 0)
         # Flatten snippets for input in linear nn
         snippets = snippets.reshape(-1, 128 * 5)
         # Perform order/connectivity agnostic eval by resampling the masks
-        outputs = torch.zeros(snippets.shape[0], snippets.shape[1] * 2, device=args.device)
+        outputs = torch.zeros(
+            snippets.shape[0], snippets.shape[1] * 2, device=args.device
+        )
         for s in range(args.samples):
             # Update model at each step
             model.update_masks()
@@ -150,11 +166,12 @@ def eval_epoch(model, optimizer, criterion, dataloader, args):
     scheduler.step(val_loss)
     return val_loss
 
+
 def test_model(model, dataloader, state_dict, args):
     model.load_state_dict(state_dict)
     model.eval()
 
-    criterion = nn.GaussianNLLLoss(reduction='none')
+    criterion = nn.GaussianNLLLoss(reduction="none")
     scores = []
     labels = []
 
@@ -164,7 +181,9 @@ def test_model(model, dataloader, state_dict, args):
             mels = mels.to(args.device)
 
             # Split the mels into 5-frame snippets
-            snippets = [mels[:, :, i:i+5] for i in range(0, mels.size(2) - 5 + 1, 5)]
+            snippets = [
+                mels[:, :, i : i + 5] for i in range(0, mels.size(2) - 5 + 1, 5)
+            ]
             # snippets = [mels[:, :, i:i+5] for i in range(mels.size(2) - 5 + 1)]
 
             batch_loss = torch.zeros([mels.shape[0]])
@@ -172,7 +191,9 @@ def test_model(model, dataloader, state_dict, args):
                 # Flatten snippets for input in linear nn
                 snippet = snippet.reshape(snippet.shape[0], -1)
                 # Perform order/connectivity agnostic eval by resampling the masks
-                outputs = torch.zeros(snippet.shape[0], snippet.shape[1] * 2, device=args.device)
+                outputs = torch.zeros(
+                    snippet.shape[0], snippet.shape[1] * 2, device=args.device
+                )
                 for s in range(args.samples):
                     # Update model at each step
                     model.update_masks()
@@ -198,7 +219,7 @@ def test_model(model, dataloader, state_dict, args):
     labels = np.array(labels)
 
     threshold = get_optimal_threshold(scores, labels)
-    predictions = (scores > threshold)
+    predictions = scores > threshold
 
     roc_auc = roc_auc_score(labels, scores)
     tpr = np.sum((predictions == 1) & (labels == 1)) / np.sum(labels == 1)

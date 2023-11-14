@@ -232,4 +232,4 @@ dataset.pt
 
 # Optuna hyperparameter search
 *.db
-optimization.py
+optimize.py

@@ -81,8 +81,8 @@ def train_epoch(model, optimizer, criterion, dataloader, args):
         mels = mels.to(args.device)
 
         # Split the mels into 5-frame snippets
-        snippets = [mels[:, :, i:i+5] for i in range(0, mels.size(2) - 5 + 1, 5)]
-        # snippets = [mels[:, :, i:i+5] for i in range(mels.size(2) - 5 + 1)]
+        # snippets = [mels[:, :, i:i+5] for i in range(0, mels.size(2) - 5 + 1, 5)]
+        snippets = [mels[:, :, i:i+5] for i in range(mels.size(2) - 5 + 1)]
         # Concatenate snippets along batch dimension
         snippets = torch.cat(snippets, 0)
         # Flatten snippets for input in linear nn
@@ -113,7 +113,7 @@ def train_epoch(model, optimizer, criterion, dataloader, args):
     return train_loss
 
 def eval_epoch(model, optimizer, criterion, dataloader, args):
-    scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, 'min', patience=args.patience // 2, min_lr=3e-5, factor=0.1)
+    scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, 'min', patience=args.patience // 2, min_lr=1e-5, factor=0.1)
 
     val_loss = 0
     model.eval()
@@ -124,8 +124,8 @@ def eval_epoch(model, optimizer, criterion, dataloader, args):
             mels = mels.to(args.device)
 
             # Split the mels into 5-frame snippets
-            snippets = [mels[:, :, i:i+5] for i in range(0, mels.size(2) - 5 + 1, 5)]
-            # snippets = [mels[:, :, i:i+5] for i in range(mels.size(2) - 5 + 1)]
+            # snippets = [mels[:, :, i:i+5] for i in range(0, mels.size(2) - 5 + 1, 5)]
+            snippets = [mels[:, :, i:i+5] for i in range(mels.size(2) - 5 + 1)]
             # Concatenate snippets along batch dimension
             snippets = torch.cat(snippets, 0)
             # Flatten snippets for input in linear nn
@@ -169,8 +169,8 @@ def test_model(model, val_dataloader, test_dataloader, state_dict, args):
             mels = mels.to(args.device)
 
             # Split the mels into 5-frame snippets
-            snippets = [mels[:, :, i:i+5] for i in range(0, mels.size(2) - 5 + 1, 5)]
-            # snippets = [mels[:, :, i:i+5] for i in range(mels.size(2) - 5 + 1)]
+            # snippets = [mels[:, :, i:i+5] for i in range(0, mels.size(2) - 5 + 1, 5)]
+            snippets = [mels[:, :, i:i+5] for i in range(mels.size(2) - 5 + 1)]
 
             batch_loss = torch.zeros([mels.shape[0]])
             for snippet in snippets:
@@ -204,8 +204,8 @@ def test_model(model, val_dataloader, test_dataloader, state_dict, args):
             mels = mels.to(args.device)
 
             # Split the mels into 5-frame snippets
-            snippets = [mels[:, :, i:i+5] for i in range(0, mels.size(2) - 5 + 1, 5)]
-            # snippets = [mels[:, :, i:i+5] for i in range(mels.size(2) - 5 + 1)]
+            # snippets = [mels[:, :, i:i+5] for i in range(0, mels.size(2) - 5 + 1, 5)]
+            snippets = [mels[:, :, i:i+5] for i in range(mels.size(2) - 5 + 1)]
 
             batch_loss = torch.zeros([mels.shape[0]])
             for snippet in snippets:

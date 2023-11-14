@@ -30,8 +30,4 @@ if __name__ == "__main__":
 
     # Evaluation model generalization using test set
 
-    roc_auc, balacc, tpr, tnr = utils.test_model(model, val_loader, test_loader, state_dict, args)
-    print('ROC-AUC:', roc_auc)
-    print('BALACC:', balacc)
-    print('TPR:', tpr)
-    print('TNR:', tnr)
+    roc_auc, balacc, tpr, tnr = utils.test_model(model, val_loader, val_loader, state_dict, args)

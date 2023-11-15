@@ -49,13 +49,16 @@ if __name__ == "__main__":
     best_val_loss = float('inf')
     waiting = 0
 
+    # Initialize scheduler
+    scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, 'min', patience=args.patience // 2, min_lr=1e-5, factor=0.1)
+
     # Initialize tensorboard
     writer = SummaryWriter()
 
     # Train the model
     for epoch in tqdm(range(args.epochs)):
         train_loss = utils.train_epoch(model, optimizer, criterion, train_loader, args)
-        val_loss = utils.eval_epoch(model, optimizer, criterion, val_loader, args)
+        val_loss = utils.eval_epoch(model, scheduler, criterion, val_loader, args)
 
         if val_loss < best_val_loss:
             best_val_loss = val_loss

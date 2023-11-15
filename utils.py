@@ -112,9 +112,7 @@ def train_epoch(model, optimizer, criterion, dataloader, args):
     train_loss = train_loss / len(dataloader)
     return train_loss
 
-def eval_epoch(model, optimizer, criterion, dataloader, args):
-    scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, 'min', patience=args.patience // 2, min_lr=1e-5, factor=0.1)
-
+def eval_epoch(model, scheduler, criterion, dataloader, args):
     val_loss = 0
     model.eval()
 

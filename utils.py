@@ -6,7 +6,7 @@ import torch.nn as nn
 import torch.nn.parallel
 from sklearn.metrics import roc_auc_score
 from sklearn.model_selection import train_test_split
-from torch.utils.data import Dataset
+from torch.utils.data import Dataset, DataLoader
 
 
 class RespiratorySoundDataset(Dataset):
@@ -28,38 +28,20 @@ def set_seeds(seed=999):
     torch.manual_seed(seed)
     torch.use_deterministic_algorithms(True)
 
-def split_data(dataset, prevent_leakage=False, seed=999):
-    data = torch.load(dataset)
-    
-    recording_ids = data['recording_ids']
-    cycles = data['cycles']
-    labels = data['labels']
+def load_data(dataset, batch_size):
+    saved_data = torch.load(dataset)
 
-    if prevent_leakage:
-        unique_recording_ids = torch.unique(recording_ids)
-        train_ids, test_ids = train_test_split(unique_recording_ids, test_size=0.2, random_state=seed, stratify=labels)
-
-        # Create masks for selecting data
-        train_mask = torch.isin(recording_ids, train_ids)
-        test_mask = torch.isin(recording_ids, test_ids)
-
-        # Separate data based on recording_id
-        X_train, y_train = cycles[train_mask], labels[train_mask]
-        X_test, y_test = cycles[test_mask], labels[test_mask]
-    else:
-        # Random splitting 80/20
-        X_train, X_test, y_train, y_test = train_test_split(cycles, labels, test_size=0.2, random_state=seed, stratify=labels)
-
-    # Further splitting of train set into validation
-    X_train, X_val, y_train, y_val = train_test_split(X_train, y_train, test_size=0.2, random_state=seed, stratify=y_train)
-
-    X_train, y_train = X_train[y_train == 0], y_train[y_train == 0]
+    X_train, X_val, X_test, y_train, y_val, y_test = saved_data['X_train'], saved_data['X_val'], saved_data['X_test'], saved_data['y_train'], saved_data['y_val'], saved_data['y_test']
 
     train_set = RespiratorySoundDataset(X_train, y_train)
     val_set = RespiratorySoundDataset(X_val, y_val)
     test_set = RespiratorySoundDataset(X_test, y_test)
+    
+    train_loader = DataLoader(train_set, batch_size=batch_size)
+    val_loader = DataLoader(val_set, batch_size=batch_size)
+    test_loader = DataLoader(test_set, batch_size=batch_size)
 
-    return train_set, val_set, test_set
+    return train_loader, val_loader, test_loader
 
 def get_optimal_threshold(losses, labels):
     accuracies = []
@@ -72,7 +54,9 @@ def get_optimal_threshold(losses, labels):
     optimal_threshold = losses[np.argmax(accuracies)]
     return optimal_threshold
 
-def train_epoch(model, optimizer, criterion, dataloader, args):
+def train_epoch(model, optimizer, dataloader, args):
+    criterion = nn.GaussianNLLLoss()
+
     train_loss = 0
     model.train()
 
@@ -112,7 +96,8 @@ def train_epoch(model, optimizer, criterion, dataloader, args):
     train_loss = train_loss / len(dataloader)
     return train_loss
 
-def eval_epoch(model, scheduler, criterion, dataloader, args):
+def eval_epoch(model, scheduler, dataloader, args):
+    criterion = nn.GaussianNLLLoss()
     val_loss = 0
     model.eval()
 
@@ -245,9 +230,75 @@ def test_model(model, val_dataloader, test_dataloader, state_dict, args):
     tnr = np.sum((predictions == 0) & (test_labels == 0)) / np.sum(test_labels == 0)
     balanced_accuracy = 0.5 * (tpr + tnr)
 
-    print("ROC-AUC Score: ", roc_auc.round(2))
-    print("BALACC: ", balanced_accuracy.round(2))
-    print("TPR: ", tpr.round(2))
-    print("TNR: ", tnr.round(2))
+    return roc_auc, balanced_accuracy, tpr, tnr
+
+def test_ensemble(models, val_dataloader, test_dataloader, args):
+    for model in models:
+        model.eval()
+
+    criterion = nn.GaussianNLLLoss(reduction='none')
+    val_scores = []
+    val_labels = []
+
+    test_scores = []
+    test_labels = []
+
+    with torch.no_grad():
+        for dataloader in [val_dataloader, test_dataloader]:
+            scores = []
+            labels = []
+
+            for batch_data in dataloader:
+                mels, y = batch_data
+                mels = mels.to(args.device)
+
+                # Split the mels into 5-frame snippets
+                snippets = [mels[:, :, i:i + 5] for i in range(mels.size(2) - 5 + 1)]
+
+                batch_loss = torch.zeros([mels.shape[0]])
+                for snippet in snippets:
+                    snippet = snippet.reshape(snippet.shape[0], -1)
+                    outputs = torch.zeros(snippet.shape[0], snippet.shape[1] * 2, device=args.device)
+
+                    for model in models:
+                        model_output = torch.zeros_like(outputs)
+                        for s in range(args.samples):
+                            model.update_masks()
+                            model_output += model(snippet)
+
+                        model_output /= args.samples
+                        outputs += model_output
+
+                    outputs /= len(models)
+
+                    # Reshape outputs to mu and logvar
+                    outputs = outputs.view(-1, 128, 5, 2)
+                    mu, logvar = outputs[..., 0], outputs[..., 1]
+                    # Reshape snippets back to original shape
+                    snippet = snippet.view(-1, 128, 5)
+
+                    loss = criterion(mu, snippet, logvar.exp()).sum((1, 2))
+                    batch_loss += loss.cpu()
+
+                batch_loss /= len(snippets)
+
+                scores.extend(batch_loss.tolist())
+                labels.extend(y.tolist())
+
+            if dataloader == val_dataloader:
+                val_scores = np.array(scores)
+                val_labels = np.array(labels)
+            else:
+                test_scores = np.array(scores)
+                test_labels = np.array(labels)
+
+    # Calculate the optimal threshold
+    threshold = get_optimal_threshold(val_scores, val_labels)
+    predictions = (test_scores > threshold)
+
+    roc_auc = roc_auc_score(test_labels, test_scores)
+    tpr = np.sum((predictions == 1) & (test_labels == 1)) / np.sum(test_labels == 1)
+    tnr = np.sum((predictions == 0) & (test_labels == 0)) / np.sum(test_labels == 0)
+    balanced_accuracy = 0.5 * (tpr + tnr)
 
     return roc_auc, balanced_accuracy, tpr, tnr

@@ -4,9 +4,8 @@ import os
 import matplotlib.pyplot as plt
 import torch
 import torchaudio
-from torchaudio.transforms import MelSpectrogram, Resample
-
 from sklearn.model_selection import train_test_split
+from torchaudio.transforms import MFCC, Resample, MelSpectrogram
 
 
 def print_melspec(melspec):
@@ -16,7 +15,7 @@ def print_melspec(melspec):
 def split_data(recording_ids, cycles, labels, prevent_leakage=False):
     if prevent_leakage:
         unique_recording_ids = torch.unique(recording_ids)
-        train_ids, test_ids = train_test_split(unique_recording_ids, test_size=0.2, stratify=labels, random_state=21)
+        train_ids, test_ids = train_test_split(unique_recording_ids, test_size=0.2, stratify=labels, random_state=42)
 
         # Create masks for selecting data
         train_mask = torch.isin(recording_ids, train_ids)
@@ -27,10 +26,10 @@ def split_data(recording_ids, cycles, labels, prevent_leakage=False):
         X_test, y_test = cycles[test_mask], labels[test_mask]
     else:
         # Random splitting 80/20
-        X_train, X_test, y_train, y_test = train_test_split(cycles, labels, test_size=0.2, stratify=labels, random_state=21)
+        X_train, X_test, y_train, y_test = train_test_split(cycles, labels, test_size=0.2, stratify=labels, random_state=42)
 
     # Further splitting of train set into validation
-    X_train, X_val, y_train, y_val = train_test_split(X_train, y_train, test_size=0.2, stratify=y_train, random_state=999)
+    X_train, X_val, y_train, y_val = train_test_split(X_train, y_train, test_size=0.2, stratify=y_train, random_state=21)
 
     X_train, y_train = X_train[y_train == 0], y_train[y_train == 0]
 
@@ -71,7 +70,9 @@ def zero_padding(tensor, target_length):
 
 def process_cycle(waveform, sr):
     # Extract mel spectrogram
-    mel_spec = MelSpectrogram(sample_rate=sr, hop_length=94, window_fn=torch.hamming_window)(waveform)
+    # mel_spec = MelSpectrogram(sample_rate=sr, n_mels=64, n_fft=256, hop_length=256 // 2, f_max=2000)(waveform)
+    mel_spec = MFCC(sample_rate=sr, n_mfcc=13, melkwargs={'n_mels': 64, 'n_fft': 256, 'hop_length': 256 // 2, 'f_max': 2000})(waveform)
+
 
     # Convert to db scale
     mel_spec_db = torchaudio.transforms.AmplitudeToDB()(mel_spec)
@@ -111,10 +112,11 @@ def extract_cycles(dataset):
             cycle = resampler(cycle)
             
             # Padding or truncating to 3 seconds
-            excerpt_length = int(3 * 4000)
+            excerpt_length = int(5 * 4000)
 
             cycle = zero_padding(cycle, excerpt_length)
             cycle = process_cycle(cycle, 4000)
+            cycle = cycle[:, :128]
 
             recording_ids.append(idx)
             cycles.append(cycle)
@@ -124,7 +126,7 @@ def extract_cycles(dataset):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Preprocessing of ICBHI 2017 dataset for anomaly detection")
-    parser.add_argument("--dataset", default="/Users/lukas/Documents/PARA/1 🚀 Projects/Bachelor Thesis/ICBHI_final_database", type=str, help="Directory where the original dataset is stored")
+    parser.add_argument("--dataset", default="/home/lukas/thesis/dataset", type=str, help="Directory where the original dataset is stored")
     parser.add_argument("--target", default="dataset.pt", type=str, help="Output path to store processed data")
     parser.add_argument("--recording_level", default=False, type=bool, help="Whether or not to split at recording level")
     args = parser.parse_args()

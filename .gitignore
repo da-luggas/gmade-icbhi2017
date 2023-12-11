@@ -233,3 +233,4 @@ dataset.pt
 # Optuna hyperparameter search
 *.db
 optimize.py
+.old_runs/

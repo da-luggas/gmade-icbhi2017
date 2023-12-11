@@ -4,7 +4,7 @@ import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.parallel
-from sklearn.metrics import roc_auc_score
+from sklearn.metrics import roc_auc_score, confusion_matrix
 from sklearn.model_selection import train_test_split
 from torch.utils.data import Dataset, DataLoader
 
@@ -70,7 +70,7 @@ def train_epoch(model, optimizer, dataloader, args):
         # Concatenate snippets along batch dimension
         snippets = torch.cat(snippets, 0)
         # Flatten snippets for input in linear nn
-        snippets = snippets.reshape(-1, 128 * 5)
+        snippets = snippets.reshape(-1, 13 * 5)
         # Perform order/connectivity agnostic training by resampling the masks
         outputs = torch.zeros(snippets.shape[0], snippets.shape[1] * 2, device=args.device)
         for s in range(args.samples):
@@ -81,10 +81,10 @@ def train_epoch(model, optimizer, dataloader, args):
         outputs /= args.samples
 
         # Reshape outputs to mu and logvar
-        outputs = outputs.view(-1, 128, 5, 2)
+        outputs = outputs.view(-1, 13, 5, 2)
         mu, logvar = outputs[..., 0], outputs[..., 1]
         # Reshape snippets back to original shape
-        snippets = snippets.view(-1, 128, 5)
+        snippets = snippets.view(-1, 13, 5)
 
         loss = criterion(mu, snippets, logvar.exp())
 
@@ -112,7 +112,7 @@ def eval_epoch(model, scheduler, dataloader, args):
             # Concatenate snippets along batch dimension
             snippets = torch.cat(snippets, 0)
             # Flatten snippets for input in linear nn
-            snippets = snippets.reshape(-1, 128 * 5)
+            snippets = snippets.reshape(-1, 13 * 5)
             # Perform order/connectivity agnostic eval by resampling the masks
             outputs = torch.zeros(snippets.shape[0], snippets.shape[1] * 2, device=args.device)
             for s in range(args.samples):
@@ -123,10 +123,10 @@ def eval_epoch(model, scheduler, dataloader, args):
             outputs /= args.samples
 
             # Reshape outputs to mu and logvar
-            outputs = outputs.view(-1, 128, 5, 2)
+            outputs = outputs.view(-1, 13, 5, 2)
             mu, logvar = outputs[..., 0], outputs[..., 1]
             # Reshape snippets back to original shape
-            snippets = snippets.view(-1, 128, 5)
+            snippets = snippets.view(-1, 13, 5)
 
             loss = criterion(mu, snippets, logvar.exp())
             val_loss += loss.item()
@@ -150,6 +150,7 @@ def test_model(model, val_dataloader, test_dataloader, state_dict, args):
         for batch_data in val_dataloader:
             mels, y = batch_data
             mels = mels.to(args.device)
+            y = y > 0
 
             # Split the mels into 5-frame snippets
             # snippets = [mels[:, :, i:i+5] for i in range(0, mels.size(2) - 5 + 1, 5)]
@@ -169,10 +170,10 @@ def test_model(model, val_dataloader, test_dataloader, state_dict, args):
                 outputs /= args.samples
 
                 # Reshape outputs to mu and logvar
-                outputs = outputs.view(-1, 128, 5, 2)
+                outputs = outputs.view(-1, 13, 5, 2)
                 mu, logvar = outputs[..., 0], outputs[..., 1]
                 # Reshape snippets back to original shape
-                snippet = snippet.view(-1, 128, 5)
+                snippet = snippet.view(-1, 13, 5)
 
                 loss = criterion(mu, snippet, logvar.exp()).sum((1, 2))
                 batch_loss += loss.cpu()
@@ -185,6 +186,7 @@ def test_model(model, val_dataloader, test_dataloader, state_dict, args):
         for batch_data in test_dataloader:
             mels, y = batch_data
             mels = mels.to(args.device)
+            y = y > 0
 
             # Split the mels into 5-frame snippets
             # snippets = [mels[:, :, i:i+5] for i in range(0, mels.size(2) - 5 + 1, 5)]
@@ -204,10 +206,10 @@ def test_model(model, val_dataloader, test_dataloader, state_dict, args):
                 outputs /= args.samples
 
                 # Reshape outputs to mu and logvar
-                outputs = outputs.view(-1, 128, 5, 2)
+                outputs = outputs.view(-1, 13, 5, 2)
                 mu, logvar = outputs[..., 0], outputs[..., 1]
                 # Reshape snippets back to original shape
-                snippet = snippet.view(-1, 128, 5)
+                snippet = snippet.view(-1, 13, 5)
 
                 loss = criterion(mu, snippet, logvar.exp()).sum((1, 2))
                 batch_loss += loss.cpu()
@@ -226,8 +228,13 @@ def test_model(model, val_dataloader, test_dataloader, state_dict, args):
     predictions = (test_scores > threshold)
 
     roc_auc = roc_auc_score(test_labels, test_scores)
-    tpr = np.sum((predictions == 1) & (test_labels == 1)) / np.sum(test_labels == 1)
-    tnr = np.sum((predictions == 0) & (test_labels == 0)) / np.sum(test_labels == 0)
+    tn, fp, fn, tp = confusion_matrix(test_labels, predictions).ravel()
+    tpr = tp / (tp + fn)
+    tnr = tn / (tn + fp)
+
+    print("tn, fp, fn, tp")
+    print(tn, fp, fn, tp)
+
     balanced_accuracy = 0.5 * (tpr + tnr)
 
     return roc_auc, balanced_accuracy, tpr, tnr
@@ -272,10 +279,10 @@ def test_ensemble(models, val_dataloader, test_dataloader, args):
                     outputs /= len(models)
 
                     # Reshape outputs to mu and logvar
-                    outputs = outputs.view(-1, 128, 5, 2)
+                    outputs = outputs.view(-1, 13, 5, 2)
                     mu, logvar = outputs[..., 0], outputs[..., 1]
                     # Reshape snippets back to original shape
-                    snippet = snippet.view(-1, 128, 5)
+                    snippet = snippet.view(-1, 13, 5)
 
                     loss = criterion(mu, snippet, logvar.exp()).sum((1, 2))
                     batch_loss += loss.cpu()
@@ -297,8 +304,13 @@ def test_ensemble(models, val_dataloader, test_dataloader, args):
     predictions = (test_scores > threshold)
 
     roc_auc = roc_auc_score(test_labels, test_scores)
-    tpr = np.sum((predictions == 1) & (test_labels == 1)) / np.sum(test_labels == 1)
-    tnr = np.sum((predictions == 0) & (test_labels == 0)) / np.sum(test_labels == 0)
+    tn, fp, fn, tp = confusion_matrix(test_labels, predictions).ravel()
+    tpr = tp / (tp + fn)
+    tnr = tn / (tn + fp)
+
+    print("tn, fp, fn, tp")
+    print(tn, fp, fn, tp)
+
     balanced_accuracy = 0.5 * (tpr + tnr)
 
     return roc_auc, balanced_accuracy, tpr, tnr
